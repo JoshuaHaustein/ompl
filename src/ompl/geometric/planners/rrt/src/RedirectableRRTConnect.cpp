@@ -78,6 +78,7 @@ void ompl::geometric::RedirectableRRTConnect::setup()
             return treeSetDistanceFunction(a, b);
         });
     queryTreeSet_ = std::make_shared<GoalTreeSubset>(new Motion(si_));
+    num_goal_tree_samples_ = 0;
 }
 
 void ompl::geometric::RedirectableRRTConnect::freeMemory()
@@ -174,18 +175,17 @@ ompl::geometric::RedirectableRRTConnect::mergeIntoForwardTree(ompl::geometric::R
         bcurrent = bparent;
     }
     // move all motions of the backward tree to the forward tree
-    if (btree_set->is_goal)
+    bool is_goal = btree_set->is_goal;
+    if (is_goal)
     {
-        num_goal_tree_samples_ -= btree_set->nodes.size() - 1;  // -1 because m is excluded
+        num_goal_tree_samples_ -= btree_set->nodes.size();
     }
     for (auto *motion : btree_set->nodes)
     {
-        if (motion == m)
-            continue;
         tGoal_->remove(motion);
-        tStart_->add(motion);
+        if (motion != m)
+            tStart_->add(motion);
     }
-    bool is_goal = btree_set->is_goal;
     // delete tree set
     goalTrees_->remove(btree_set);
     // delete m
@@ -318,6 +318,7 @@ ompl::base::PlannerStatus ompl::geometric::RedirectableRRTConnect::solve(const b
     base::State *rstate = rmotion->state;
     bool startTree = true;
     bool solved = false;
+    unsigned int num_goals_sampled = 0;
 
     while (!ptc)
     {
@@ -326,26 +327,19 @@ ompl::base::PlannerStatus ompl::geometric::RedirectableRRTConnect::solve(const b
         startTree = !startTree;
         TreeData &otherTree = startTree ? tStart_ : tGoal_;
 
-        if (tGoal_->size() == 0 || pis_.getSampledGoalsCount() < num_goal_tree_samples_ / 2)
+        // TODO this is specific to placement planner use case
+        if (tGoal_->size() == 0 ||
+            num_goals_sampled < goal->maxSampleCount())  // not using pis_ here because it would need to be reset
         {
-            const base::State *st = tGoal_->size() == 0 ? pis_.nextGoal(ptc) : pis_.nextGoal();
-            if (st != nullptr)
-            {
-                // we have a new goal
-                auto *motion = new Motion(si_);
-                si_->copyState(motion->state, st);
-                motion->root = motion->state;
-                tGoal_->add(motion);
-                auto new_tree = std::make_shared<GoalTreeSubset>(motion);
-                goalTrees_->add(new_tree);
-                num_goal_tree_samples_ += 1;
-            }
-
-            if (tGoal_->size() == 0)
-            {
-                OMPL_ERROR("%s: Unable to sample any valid states for goal tree", getName().c_str());
-                break;
-            }
+            // we have a new goal
+            auto *motion = new Motion(si_);
+            goal->sampleGoal(motion->state);
+            motion->root = motion->state;
+            tGoal_->add(motion);
+            auto new_tree = std::make_shared<GoalTreeSubset>(motion);
+            goalTrees_->add(new_tree);
+            num_goal_tree_samples_ += 1;
+            num_goals_sampled += 1;
         }
 
         /* sample random state */
@@ -462,6 +456,7 @@ void ompl::geometric::RedirectableRRTConnect::removeGoals(const std::vector<cons
         if (goal_tree != nullptr)
         {
             goal_tree->is_goal = false;  // mark it as non-goal
+            num_goal_tree_samples_ -= goal_tree->nodes.size();
         }
     }
 }
