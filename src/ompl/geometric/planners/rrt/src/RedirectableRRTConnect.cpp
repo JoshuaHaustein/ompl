@@ -297,7 +297,7 @@ ompl::base::PlannerStatus ompl::geometric::RedirectableRRTConnect::solve(const b
         return base::PlannerStatus::INVALID_START;
     }
 
-    if (!goal->couldSample())
+    if (num_goal_tree_samples_ == 0 and !goal->couldSample())
     {
         OMPL_ERROR("%s: Insufficient states in sampleable goal region", getName().c_str());
         return base::PlannerStatus::INVALID_GOAL;
