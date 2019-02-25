@@ -35,6 +35,7 @@
 /* Author: Ioan Sucan */
 
 #include "ompl/geometric/planners/rrt/RedirectableRRTConnect.h"
+// #include <iostream>
 #include "ompl/base/goals/GoalSampleableRegion.h"
 #include "ompl/tools/config/SelfConfig.h"
 
@@ -156,6 +157,7 @@ std::pair<bool, ompl::geometric::RedirectableRRTConnect::Motion *>
 ompl::geometric::RedirectableRRTConnect::mergeIntoForwardTree(ompl::geometric::RedirectableRRTConnect::Motion *fm,
                                                               ompl::geometric::RedirectableRRTConnect::Motion *m)
 {
+    // std::cout << "Merging backward tree into forward tree." << std::endl;
     assert(si_->distance(fm->state, m->state) == 0.0);
     // first retrieve backwards tree set of backward tree
     auto btree_set = getTreeSet(m->root);
@@ -178,7 +180,10 @@ ompl::geometric::RedirectableRRTConnect::mergeIntoForwardTree(ompl::geometric::R
     bool is_goal = btree_set->is_goal;
     if (is_goal)
     {
+        // std::cout << "The backward tree is a goal. Having " << num_goal_tree_samples_ << " samples. Removing "
+        //   << btree_set->nodes.size() << std::endl;
         num_goal_tree_samples_ -= btree_set->nodes.size();
+        // std::cout << "Number of goal samples left:" << num_goal_tree_samples_ << std::endl;
     }
     for (auto *motion : btree_set->nodes)
     {
@@ -312,8 +317,8 @@ ompl::base::PlannerStatus ompl::geometric::RedirectableRRTConnect::solve(const b
     TreeGrowingInfo tgi;
     tgi.xstate = si_->allocState();
 
-    Motion *approxsol = nullptr;
-    double approxdif = std::numeric_limits<double>::infinity();
+    // Motion *approxsol = nullptr;
+    // double approxdif = std::numeric_limits<double>::infinity();
     auto *rmotion = new Motion(si_);
     base::State *rstate = rmotion->state;
     bool startTree = true;
@@ -383,6 +388,7 @@ ompl::base::PlannerStatus ompl::geometric::RedirectableRRTConnect::solve(const b
                 std::tie(b_goal, solution) = mergeIntoForwardTree(startMotion, goalMotion);
                 if (b_goal)
                 {
+                    // std::cout << "The tree was a goal tree!" << std::endl;
                     /* construct the solution path */
                     std::vector<Motion *> mpath;
                     while (solution != nullptr)
@@ -401,22 +407,22 @@ ompl::base::PlannerStatus ompl::geometric::RedirectableRRTConnect::solve(const b
                     break;
                 }
             }
-            else
-            {
-                // We didn't reach the goal, but if we were extending the start
-                // tree, then we can mark/improve the approximate path so far.
-                if (!startTree)
-                {
-                    // We were working from the startTree.
-                    double dist = 0.0;
-                    goal->isSatisfied(tgi.xmotion->state, &dist);
-                    if (dist < approxdif)
-                    {
-                        approxdif = dist;
-                        approxsol = tgi.xmotion;
-                    }
-                }
-            }
+            // else
+            // {
+            //     // We didn't reach the goal, but if we were extending the start
+            //     // tree, then we can mark/improve the approximate path so far.
+            //     if (!startTree)
+            //     {
+            //         // We were working from the startTree.
+            //         double dist = 0.0;
+            //         goal->isSatisfied(tgi.xmotion->state, &dist);
+            //         if (dist < approxdif)
+            //         {
+            //             approxdif = dist;
+            //             approxsol = tgi.xmotion;
+            //         }
+            //     }
+            // }
         }
     }
 
@@ -427,22 +433,22 @@ ompl::base::PlannerStatus ompl::geometric::RedirectableRRTConnect::solve(const b
     OMPL_INFORM("%s: Created %u states (%u start + %u goal)", getName().c_str(), tStart_->size() + tGoal_->size(),
                 tStart_->size(), tGoal_->size());
 
-    if (approxsol && !solved)
-    {
-        /* construct the solution path */
-        std::vector<Motion *> mpath;
-        while (approxsol != nullptr)
-        {
-            mpath.push_back(approxsol);
-            approxsol = approxsol->parent;
-        }
+    // if (approxsol && !solved)
+    // {
+    //     /* construct the solution path */
+    //     std::vector<Motion *> mpath;
+    //     while (approxsol != nullptr)
+    //     {
+    //         mpath.push_back(approxsol);
+    //         approxsol = approxsol->parent;
+    //     }
 
-        auto path(std::make_shared<PathGeometric>(si_));
-        for (int i = mpath.size() - 1; i >= 0; --i)
-            path->append(mpath[i]->state);
-        pdef_->addSolutionPath(path, true, approxdif, getName());
-        return base::PlannerStatus::APPROXIMATE_SOLUTION;
-    }
+    //     auto path(std::make_shared<PathGeometric>(si_));
+    //     for (int i = mpath.size() - 1; i >= 0; --i)
+    //         path->append(mpath[i]->state);
+    //     pdef_->addSolutionPath(path, true, approxdif, getName());
+    //     return base::PlannerStatus::APPROXIMATE_SOLUTION;
+    // }
 
     return solved ? base::PlannerStatus::EXACT_SOLUTION : base::PlannerStatus::TIMEOUT;
 }
@@ -453,8 +459,11 @@ void ompl::geometric::RedirectableRRTConnect::removeGoals(const std::vector<cons
     {
         // check whether we have a tree set for this goal
         auto goal_tree = getTreeSet(old_goal);
+        // if (goal_tree != nullptr and goal_tree->is_goal)
         if (goal_tree != nullptr)
         {
+            if (!goal_tree->is_goal)
+                throw std::logic_error("Removing a goal tree twice!");
             goal_tree->is_goal = false;  // mark it as non-goal
             num_goal_tree_samples_ -= goal_tree->nodes.size();
         }
@@ -478,7 +487,8 @@ void ompl::geometric::RedirectableRRTConnect::getGoals(std::vector<base::ScopedS
     goalTrees_->list(goal_trees);
     for (auto gtree : goal_trees)
     {
-        current_goals.emplace_back(base::ScopedState<>(si_->getStateSpace(), gtree->root->state));
+        if (gtree->is_goal)
+            current_goals.emplace_back(base::ScopedState<>(si_->getStateSpace(), gtree->root->state));
     }
 }
 
